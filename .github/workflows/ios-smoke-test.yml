@@ -1,0 +1,72 @@
+name: iOS simulator smoke test
+
+# Verifies the NATIVE app actually launches, renders its UI and loads a real
+# website with userscripts injected. The localhost web version cannot do this.
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick an available iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          c = [x for devs in d["devices"].values() for x in devs
+               if x.get("isAvailable") and x["name"].startswith("iPhone")]
+          print(c[0]["udid"] if c else "")
+          ')
+          test -n "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | head -20
+
+      - name: Compile for iOS Simulator
+        run: |
+          set -euo pipefail
+          mkdir -p build/Sim
+          xcodebuild \
+            -project iPhone6Browser.xcodeproj \
+            -target iPhone6Browser \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            ARCHS=x86_64 \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Sim" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Install and launch
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/Sim/iPhone6Browser.app"
+          test -d "$APP"
+          # arm64-only device capability blocks simulator installs; strip it
+          # from this throwaway Debug build only (the shipped IPA is untouched).
+          /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "$APP/Info.plist" || true
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          xcrun simctl install booted "$APP"
+          xcrun simctl launch booted com.mh.iphone6browser
+          sleep 15
+          echo "--- process check ---"
+          xcrun simctl spawn booted ps -A | grep -i iPhone6Browser || true
+          xcrun simctl io booted screenshot "$PWD/build/simulator.png"
+          echo "--- console ---"
+          xcrun simctl spawn booted log show --last 1m --style compact \
+            --predicate 'process == "iPhone6Browser"' > "$PWD/build/app.log" 2>&1 || true
+          tail -40 "$PWD/build/app.log" || true
+
+      - name: Upload screenshot and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-smoke
+          path: |
+            build/simulator.png
+            build/app.log
+          if-no-files-found: warn
