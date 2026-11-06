@@ -1,0 +1,50 @@
+name: Build unsigned IPA
+
+# Push this folder to GitHub (or run the workflow manually) and a macOS runner
+# with full Xcode will compile a real arm64 .app and upload a downloadable IPA.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Compile arm64 Release
+        run: |
+          set -euo pipefail
+          mkdir -p build/Products
+          xcodebuild \
+            -project iPhone6Browser.xcodeproj \
+            -target iPhone6Browser \
+            -configuration Release \
+            -sdk iphoneos \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Products" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package .ipa
+        run: |
+          set -euo pipefail
+          test -d build/Products/iPhone6Browser.app
+          mkdir -p build/Payload
+          cp -R build/Products/iPhone6Browser.app build/Payload/
+          (cd build && zip -qry iPhone6Browser-unsigned.ipa Payload)
+          ls -lh build/iPhone6Browser-unsigned.ipa
+          codesign -dv build/Products/iPhone6Browser.app 2>&1 || true
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhone6Browser-unsigned-ipa
+          path: build/iPhone6Browser-unsigned.ipa
+          if-no-files-found: error
