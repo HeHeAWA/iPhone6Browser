@@ -1,0 +1,16 @@
+name: Probe macOS runners
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-15-intel, macos-14, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Report
+        run: |
+          echo "RUNNER_OK=${{ matrix.os }}"
+          sw_vers
+          xcodebuild -version
