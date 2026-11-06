@@ -277,14 +277,11 @@ final class UserScriptManager {
             ] as [String: Any]
         ]
 
-        var names: [String] = []
-        if rec.grants.contains("none") {
-            names = []
-        } else if rec.grants.isEmpty {
-            names = UserScriptManager.apiNames
-        } else {
-            names = rec.grants.filter { UserScriptManager.apiNames.contains($0) }
-        }
+        // Expose the full API surface by default. Honouring a partial @grant
+        // list verbatim made real scripts fail with "GM_addStyle is not defined"
+        // when their metadata was incomplete or pasted together. Only an
+        // explicit "@grant none" opts out.
+        var names: [String] = rec.grants.contains("none") ? [] : UserScriptManager.apiNames
         for extra in ["GM_info", "GM", "unsafeWindow"] {
             if !names.contains(extra) { names.append(extra) }
         }
